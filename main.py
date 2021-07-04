@@ -43,18 +43,7 @@ from PIL import ImageDraw  # For drawing elements
 
 ## SETUP ##
 # Regex
-SS = r"(?<!\/|\w)"  # Safe Start
-SE = r"(?!\/|\w)"  # Safe End
-DECIMAL = r"[+-]?(?:[0-9]*\.)?[0-9]+"
-POS_INT = r"[0-9]+"
-### Inline linking ###
-ELM_INLINE_REGEX = rf"{SS}(node|way|relation)(s? |\/)({POS_INT}(?:(?:, | and | or | )(?:{POS_INT}))*){SE}"
-CHANGESET_INLINE_REGEX = rf"{SS}(changeset)(s? |\/)({POS_INT}(?:(?:, | and | or | )(?:{POS_INT}))*){SE}"
-NOTE_INLINE_REGEX = rf"{SS}(note)(s? |\/)({POS_INT}(?:(?:, | and | or | )(?:{POS_INT}))*){SE}"
-USER_INLINE_REGEX = rf"{SS}user\/[\w\-_]+{SE}"
-# FIXME: For some reason this allows stuff after the end of the map fragment.
-MAP_FRAGMENT_INLINE_REGEX = rf"{SS}#map={POS_INT}\/{DECIMAL}\/{DECIMAL}{SE}"
-MAP_FRAGEMT_CAPTURING_REGEX = rf"#map=({POS_INT})\/({DECIMAL})\/({DECIMAL})"
+import regexes
 
 # This global set contains filename similar to /googlebad. If on_message fails, it will remove cached files on next run.
 cached_files: set = set()
@@ -109,13 +98,6 @@ def save_config() -> None:
 config: dict[str, Any] = {}
 guild_ids: list[int] = []
 load_config()
-
-ELM_INLINE_REGEX = re.compile(ELM_INLINE_REGEX, re.IGNORECASE)
-CHANGESET_INLINE_REGEX = re.compile(CHANGESET_INLINE_REGEX, re.IGNORECASE)
-NOTE_INLINE_REGEX = re.compile(NOTE_INLINE_REGEX, re.IGNORECASE)
-USER_INLINE_REGEX = re.compile(USER_INLINE_REGEX, re.IGNORECASE)
-MAP_FRAGMENT_INLINE_REGEX = re.compile(MAP_FRAGMENT_INLINE_REGEX, re.IGNORECASE)
-INTEGER_REGEX = re.compile(POS_INT)
 
 overpass_api = overpy.Overpass(url=config["overpass_url"])
 
@@ -1680,7 +1662,7 @@ async def on_message(msg: Message) -> None:
     msg_arrived = time.time()
 
     #### "use potlatch" → sirens 🚨 ####
-    if "use potlatch" in msg.clean_content.lower():
+    if regexes.POTLATCH.findall(msg.clean_content):
         await msg.add_reaction("🚨")
         await msg.add_reaction(config["emoji"]["potlatch"])
 
@@ -1689,20 +1671,11 @@ async def on_message(msg: Message) -> None:
     # elm[0] - element type (node/way/relation/changeset)
     # elm[1] - separator used
     # elm[2] - element ID
-    elms = [
-        (elm[0].lower(), tuple(INTEGER_REGEX.findall(elm[2])), elm[1])
-        for elm in ELM_INLINE_REGEX.findall(msg.clean_content)
-    ]
-    changesets = [
-        (elm[0].lower(), tuple(INTEGER_REGEX.findall(elm[2])), elm[1])
-        for elm in CHANGESET_INLINE_REGEX.findall(msg.clean_content)
-    ]
-    notes = [
-        (elm[0].lower(), tuple(INTEGER_REGEX.findall(elm[2])), elm[1])
-        for elm in NOTE_INLINE_REGEX.findall(msg.clean_content)
-    ]
-    users = [thing.split("/")[1] for thing in USER_INLINE_REGEX.findall(msg.clean_content)]
-    map_frags = MAP_FRAGMENT_INLINE_REGEX.findall(msg.clean_content)
+    elms = regexes.find_matches(regexes.ELM_INLINE, msg.clean_content)
+    changesets = regexes.find_matches(regexes.CHANGESET_INLINE, msg.clean_content)
+    notes = regexes.find_matches(regexes.NOTE_INLINE, msg.clean_content)
+    users = regexes.find_matches(regexes.USER_INLINE, msg.clean_content)
+    map_frags = regexes.MAP_FRAGMENT_INLINE.findall(msg.clean_content)
 
     queried_elements_count = len(elms) + len(changesets) + len(users) + len(map_frags) + len(notes)
     author_id = msg.author.id
