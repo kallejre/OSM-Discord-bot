@@ -10,6 +10,7 @@
 from config import config
 import requests
 import colors
+import network
 
 
 # Used in render_elms_on_cluster. List of colours to be cycled.
