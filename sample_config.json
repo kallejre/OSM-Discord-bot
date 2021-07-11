@@ -86,6 +86,8 @@
             "Accept-Language": "en-GB,en",
             "Connection": "keep-alive",
         },
+        "colour_names_json_url": "https://raw.githubusercontent.com/bahamas10/css-color-names/master/css-color-names.json",
+        "RAL_url": "https://raw.githubusercontent.com/smaddy/ral-json/main/ral_pretty.json"
         "limiter_offset": 50,
         "reduction_factor": 2
     },
