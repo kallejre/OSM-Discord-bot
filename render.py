@@ -41,6 +41,216 @@ closed_note_icon_size = closed_note_icon.size
 # Covering element instance lifecycle from download to uploading to chat.
 
 
+class BaseElement:
+    def __init__(self, elm_type, id, **kwargs):
+        self.id = str(id)
+        self.type = elem_type
+        # Has this element been optimized into renderable form.
+        self.resolved = False
+        # Geomentry will be different from original. List of RenderSegment-s
+        self.geometry = None
+        # Rendertype tells if we are dealing with either:
+        # * single coordinate pair (node)
+        # * single coordinate pair /w image (note / user)
+        # * single array of coordinates (RenderSegment / way)
+        # * array of RenderSegment-s (relation)
+        # Actually that's pretty much self.type
+        self.rendertype = None
+        self.elm = get_elm(elm_type, id, "dicussion" in kwargs and kwargs["dicussion"])
+
+    def resolve(self):
+        # Add code for geometry lookup
+        self.resolved = True
+        pass
+
+
+class Note(BaseElement):
+    def __init__(self, id):
+        super().__init__("note", id)
+
+    def resolve(self):
+        super().resolve()
+
+
+class Changeset(BaseElement):
+    def __init__(self, id, get_discussion: bool = False):
+        super().__init__("changeset", id, dicussion=get_discussion)
+
+    def resolve(self):
+        super().resolve()
+
+
+class User(BaseElement):
+    def __init__(self, username):
+        super().__init__("user", network.get_id_from_username(username))
+        self.name = str(username)
+
+    def resolve(self):
+        super().resolve()
+
+
+class Element(BaseElement):
+    def __init__(self, elem_type, id):
+        super().__init__(elm_type, id)
+
+    def resolve(self):
+        super().resolve()
+
+
+# The point is that it's not feasible to maintain every node-way-relation of every element, because they will grow large; therefore they need to be optimized into something simpler... I have hit multiple walls again.
+
+
+class RenderQueue:
+    # Think of RenderQueue like temporary collection of elements, that will be featured on single image.
+    def __init__(self, *elements):
+        # elements is list of tuples (elm_type: str, ID: int|str) to be processed.
+        # Init does nothing but sets up variables and then starts adding elements to lists.
+        # Notes have Lat, Lon and Bool for open/closed.
+        self.notes = []
+        # Changesets are currently drawn as simple rectangles,
+        # but in the future they could support drawing actual contents of changeset.
+        self.changesets = []
+        # Futureproofing. No actual functionality. One could render users by taking their profile picture
+        # and paste it at user's defined home coordinates. Sadly user home seems to be private information.
+        # Anyways.. future-proofing.
+        self.users = []
+        # Elements. Generic catch-all for rest of them.  In future they could be stored as special objects.
+        self.elements = []
+        # Resolved - has element IDs been converted into tags and geoetry?
+        self.resolved = False
+        # Segments - array of geographic coordinates with defined or undefined colours.
+        # Ready to be plotted on map. If all elements are converted to segments,
+        self.add(*elements)
+        return self
+
+    def add(self, *elements):
+        self.resolved = False
+        # First if handles cases like add("note", 1)
+        if len(elements) == 2 and type(elements[0]) == str and (type(elements[1]) == int or type(elements[1]) == str):
+            elements = [elements]
+        # Normal input should be add(("note", 1), ("way", 2))
+        for element in elements:
+            if element[0].lower() == "note" or element[0].lower() == "notes":
+                self.notes.append(Note(element[1]))
+            elif element[0].lower() == "changeset":
+                self.changesets.append(Changeset(element[1]))
+            elif element[0].lower() == "user":
+                self.users.append(User(element[1]))
+            else:
+                self.elements.append(Element(element[0], element[1]))
+
+    def resolve(self):
+        # Queries elements to resolve geometry.
+        # Resolve is term from overpass query processing for relations,
+        # where initial query has only metadata and you need separate command
+        # to download actual geometry information.
+        if self.resolved:
+            return
+        for element in self.elements:
+            if not element.resolved:
+                element.resolve()
+        self.resolved = True
+
+    def get_bounds(self, segments=True, notes=True) -> tuple[float, float, float, float]:
+        # Finds bounding box of rendering queue (segments)
+        # Rendering queue is bunch of coordinates that was calculated in previous function.
+        if self.resolved:
+            raise ValueError(
+                "Unresolved element. Element ID was given for rendering, but it was never converted into geographical coordinates."
+            )
+        min_lat, max_lat, min_lon, max_lon = 90.0, -90.0, 180.0, -180.0
+        precision = 5  # https://xkcd.com/2170/
+        for segment in self.segments:
+            for coordinates in segment:
+                lat, lon = coordinates
+                # int() because type checker is an idiot
+                # Switching it to int kills the whole renderer!
+                if lat > max_lat:
+                    max_lat = round(lat, precision)
+                if lat < min_lat:
+                    min_lat = round(lat, precision)
+                if lon > max_lon:
+                    max_lon = round(lon, precision)
+                if lon < min_lon:
+                    min_lon = round(lon, precision)
+        for note in self.notes:
+            lat, lon, solved = note
+            # int() because type checker is an idiot
+            # Switching it to int kills the whole renderer!
+            if lat > max_lat:
+                max_lat = round(lat, precision)
+            if lat < min_lat:
+                min_lat = round(lat, precision)
+            if lon > max_lon:
+                max_lon = round(lon, precision)
+            if lon < min_lon:
+                min_lon = round(lon, precision)
+        if min_lat == max_lat:  # In event when all coordinates are same...
+            min_lat -= 10 ** (-precision)
+            max_lat += 10 ** (-precision)
+        if min_lon == max_lon:  # Add small variation to not end up in ZeroDivisionError
+            min_lon -= 10 ** (-precision)
+            max_lon += 10 ** (-precision)
+        return (min_lat, max_lat, min_lon, max_lon)
+
+    def calc_preview_area(self) -> tuple[int, float, float]:
+        # queue_bounds: tuple[float, float, float, float]
+
+        # Input: tuple (min_lat, max_lat, min_lon, max_lon)
+        # Output: tuple (int(zoom), float(lat), float(lon))
+        # Based on old showmap function and https://wiki.openstreetmap.org/wiki/Zoom_levels
+        # Finds map area, that should contain all elements.
+        # I think this function causes issues with incorrect rendering due to using average of boundaries, not tiles.
+        print("Elements bounding box:", *list(map(lambda x: round(x, 4), self.queue_bounds)))
+        min_lat, max_lat, min_lon, max_lon = self.queue_bounds
+        delta_lat = max_lat - min_lat
+        delta_lon = max_lon - min_lon
+        zoom_x = int(
+            math.log2((360 / delta_lon) * (config["rendering"]["tiles_x"] - 2 * config["rendering"]["tile_margin_x"]))
+        )
+        center_lon = delta_lon / 2 + min_lon
+        # Zoom level is determined by trying to fit x/y bounds into 5 tiles.
+        zoom_y = (config["rendering"]["max_zoom"] + 1)
+        while (utils.deg2tile(min_lat, 0, zoom_y)[1] - utils.deg2tile(max_lat, 0, zoom_y)[1] + 1) > config["rendering"][
+            "tiles_y"
+        ] - 2 * config["rendering"]["tile_margin_y"]:
+            zoom_y -= 1  # Bit slow and dumb approach
+        zoom = min(zoom_x, zoom_y, config["rendering"]["max_zoom"])
+        tile_y_min = utils.deg2tile_float(max_lat, 0, zoom)[1]
+        tile_y_max = utils.deg2tile_float(min_lat, 0, zoom)[1]
+        print(zoom, center_lon)
+        if zoom < 10:
+            # At low zoom levels and high latitudes, mercator's distortion must be accounted
+            center_lat = round(utils.tile2deg(zoom, 0, (tile_y_max + tile_y_min) / 2)[0], 5)
+        else:
+            center_lat = (max_lat - min_lat) / 2 + min_lat
+        print(center_lat, min_lat, max_lat)
+        self.preview_area = (zoom, center_lat, center_lon)
+        return (zoom, center_lat, center_lon)
+
+
+class RenderSegment:
+    def reduce(self):
+        # See  def reduce_segment_nodes(segments
+        pass
+
+    def __add__(self, other_segment):
+        # See  def merge_segments(segments
+        pass
+
+    def calc_limit(no_of_nodes):
+        # Excel equivalent is =IF(A1<50;A1;SQRT(A1-50)+50)
+        # Limiter_offset - Minimum number of nodes.
+        # Reduction_factor - n-th root by which array length is reduced.
+        if no_of_nodes < config["render"]["limiter_offset"]:
+            return no_of_nodes
+        else:
+            return int(
+                (no_of_nodes - config["render"]["limiter_offset"]) ** (1 / config["render"]["reduction_factor"])
+                + config["render"]["limiter_offset"]
+            )
+
+
 # Standard part for getting map:
 """
     files = []
