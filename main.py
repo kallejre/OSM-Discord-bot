@@ -169,11 +169,6 @@ def get_suffixed_tag(
         return None, None
 
 
-# This doesn't work correct.
-# def comma_every_three(text: str) -> str:
-#     return ",".join(re.findall("...", str(text)[::-1]))[::-1]
-
-
 def msg_to_link(msg: Union[Message, SlashMessage]) -> str:
     return f"https://discord.com/channels/{msg.guild.id}/{msg.channel.id}/{msg.id}"
 
@@ -901,14 +896,6 @@ async def user_command(ctx: SlashContext, username: str, extras: str = "") -> No
     await ctx.send(embed=user_embed(user, extras_list))
 
 
-def get_id_from_username_old(username: str) -> int:
-    whosthat = requests.get(config["whosthat_url"] + "whosthat.php?action=names&q=" + username).json()
-    if len(whosthat) > 0:
-        return whosthat[0]["id"]
-    else:
-        raise ValueError(f"User `{username}` not found")
-
-
 def get_id_from_username(username: str) -> int:
     whosthat = requests.get(config["whosthat_url"] + "whosthat.php?action=names&q=" + username).json()
     if len(whosthat) > 0:
@@ -1312,38 +1299,6 @@ def calc_preview_area(queue_bounds: tuple[float, float, float, float]) -> tuple[
         center_lat = (max_lat - min_lat) / 2 + min_lat
     print(center_lat, min_lat, max_lat)
     return (zoom, center_lat, center_lon)
-
-
-async def get_image_cluster_old(
-    lat_deg: float,
-    lon_deg: float,
-    zoom: int,
-    tile_url: str = config["tile_url"],
-) -> File:
-    # Modified from https://github.com/ForgottenHero/mr-maps
-    delta_long = 0.00421 * math.pow(2, max_zoom - int(zoom))
-    delta_lat = 0.0012 * math.pow(2, max_zoom - int(zoom))
-    lat_deg = float(lat_deg) - (delta_lat / 2)
-    lon_deg = float(lon_deg) - (delta_long / 2)
-    i = 0
-    j = 0
-    xmin, ymax = deg2tile(lat_deg, lon_deg, zoom)
-    xmax, ymin = deg2tile(lat_deg + delta_lat, lon_deg + delta_long, zoom)
-    Cluster = Image.new("RGB", ((xmax - xmin + 1) * tile_w - 1, (ymax - ymin + 1) * tile_h - 1))
-    for xtile in range(xmin, xmax + 1):
-        for ytile in range(ymin, ymax + 1):
-            try:
-                res = requests.get(tile_url.format(zoom=zoom, x=xtile, y=ytile), headers=config["rendering"]["HEADERS"])
-                tile = Image.open(BytesIO(res.content))
-                Cluster.paste(tile, box=((xtile - xmin) * tile_w, (ytile - ymin) * tile_h))
-                i = i + 1
-            except Exception as e:
-                print(e)
-        j = j + 1
-    filename = config["map_save_file"].format(t=time.time())
-    Cluster.save(filename)
-    # return File(filename)
-    return Cluster
 
 
 def get_image_tile_range(lat_deg: float, lon_deg: float, zoom: int) -> tuple[int, int, int, int, tuple[float, float]]:
