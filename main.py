@@ -332,17 +332,55 @@ async def elm_command(ctx: SlashContext, elm_type: str, elm_id: str, extras: str
     await ctx.send(embed=embed, file=file)
 
 
-def get_elm(elm_type: str, elm_id: str | int, suffix: str = "") -> dict:
+def get_elm(elm_type: str, elm_id: str | int, get_discussion: bool = False) -> dict:
+    # New, unified element query function.
+    suffix = ""
+    if get_discussion and elm_type == "changeset":
+        # Notes are always queried with discussion.
+        suffix = "?include_discussion=true"
+    if elm_type == "note" or elm_type == "notes":
+        # Notes api is rather odd, as it has `noteS`, not `note`
+        elm_type = "notes"
+
     res = requests.get(config["api_url"] + f"api/0.6/{elm_type}/{elm_id}.json" + suffix)
+    if elm_type == "notes":
+        elm_type = "note"
     code = res.status_code
     if code == 410:
         raise ValueError(f"{elm_type.capitalize()} `{elm_id}` has been deleted.")
     elif code == 404:
         raise ValueError(f"{elm_type.capitalize()} `{elm_id}` has never existed.")
     try:
-        elm = res.json()["elements"][0]
-    except (json.decoder.JSONDecodeError, IndexError, KeyError):
-        raise ValueError(f"{elm_type.capitalize()} `{elm_id}` was not found.")
+        elm = res.json()
+    except (json.decoder.JSONDecodeError):
+        raise ValueError(f"{elm_type.capitalize()} `{elm_id}` does not exist.")
+    if elm_type == "note":
+        elm["geometry"] = [[tuple(elm["geometry"]["coordinates"])]]
+        pass  # Notes don't need much special parsing, they are good to go.
+    elif elm_type == "changeset":
+        try:
+            elm = elm["elements"][0]
+            elm["geometry"] = [
+                [
+                    (elm["minlat"], elm["minlon"]),
+                    (elm["minlat"], elm["maxlon"]),
+                    (elm["maxlat"], elm["maxlon"]),
+                    (elm["maxlat"], elm["minlon"]),
+                    (elm["minlat"], elm["minlon"]),
+                ]
+            ]
+        except (IndexError, KeyError):
+            raise ValueError(f"Changeset `{elm_id}` was not found.")
+    elif elm_type == "user":
+        try:
+            elm = elm["user"]
+        except (IndexError, KeyError):
+            raise ValueError(f"User `{elm_id}` was not found")
+    else:
+        try:
+            elm = elm["elements"][0]
+        except (IndexError, KeyError):
+            raise ValueError(f"{elm_type.capitalize()} `{elm_id}` was not found.")
     return elm
 
 
@@ -511,7 +549,7 @@ async def changeset_command(ctx: SlashContext, changeset_id: str, extras: str = 
             return
 
     try:
-        changeset = get_changeset(changeset_id, "discussion" in extras)
+        changeset = get_elm("changeset", changeset_id, "discussion" in extras)
     except ValueError as error_message:
         await ctx.send(error_message, hidden=True)
         return
@@ -534,27 +572,6 @@ async def changeset_command(ctx: SlashContext, changeset_id: str, extras: str = 
         embed.set_image(url="attachment://" + filename2.split("/")[-1])
         file = File(filename2)
     await ctx.send(embed=embed, file=file)
-
-
-def get_changeset(changeset_id: str | int, discussion: bool = False) -> dict:
-    """Shorthand for `get_elm("changeset", changeset_id)`"""
-    try:
-        discussion_suffix = ""
-        if discussion:
-            discussion_suffix = "?include_discussion=true"
-        changeset = get_elm("changeset", changeset_id, discussion_suffix)
-        changeset["geometry"] = [
-            [
-                (changeset["minlat"], changeset["minlon"]),
-                (changeset["minlat"], changeset["maxlon"]),
-                (changeset["maxlat"], changeset["maxlon"]),
-                (changeset["maxlat"], changeset["minlon"]),
-                (changeset["minlat"], changeset["minlon"]),
-            ]
-        ]
-        return changeset
-    except ValueError as error_message:
-        raise ValueError(error_message)
 
 
 def changeset_embed(changeset: dict, extras: Iterable[str] = []) -> Embed:
@@ -664,23 +681,13 @@ async def note_command(ctx: SlashContext, note_id: str, extras: str = "") -> Non
             return
 
     try:
-        note = get_note(note_id)
+        note = get_elm("note", note_id)
     except ValueError as error_message:
         await ctx.send(error_message, hidden=True)
         return
 
     await ctx.defer()
     await ctx.send(embed=note_embed(note, extras_list))
-
-
-def get_note(note_id: str | int) -> dict:
-    """Shorthand for get_elm didn't work"""
-    res = requests.get(config["api_url"] + f"api/0.6/notes/{note_id}.json")
-    try:
-        elm = res.json()
-    except (json.decoder.JSONDecodeError, IndexError, KeyError):
-        raise ValueError(f"Note `{note_id}` does not exist.")
-    return elm
 
 
 def note_embed(note: dict, extras: Iterable[str] = []) -> Embed:
@@ -771,9 +778,9 @@ async def user_command(ctx: SlashContext, username: str, extras: str = "") -> No
 
     try:
         # Both will raise ValueError if the user isn't found, get_id_from_username will usually error first.
-        # In cases where the account was only removed recently, get_user will error.
+        # In cases where the account was only removed recently, getting user will error.
         user_id = get_id_from_username(username)
-        user = get_user(user_id)
+        user = get_elm("user", user_id)
     except ValueError as error_message:
         await ctx.send(error_message, hidden=True)
         return
@@ -803,17 +810,6 @@ def get_id_from_username(username: str) -> int:
             except KeyError:
                 pass  # Encountered anonymous note
     raise ValueError(f"User `{username}` does exist, but has no changesets nor notes.")
-
-
-def get_user(user_id: str | int) -> dict:
-    res = requests.get(config["api_url"] + f"api/0.6/user/{user_id}.json")
-
-    try:
-        user = res.json()["user"]
-    except (json.decoder.JSONDecodeError, IndexError, KeyError):
-        raise ValueError(f"User `{user_id}` not found")
-
-    return user
 
 
 def user_embed(user: dict, extras: Iterable[str] = []) -> Embed:
@@ -1491,7 +1487,7 @@ async def on_message(msg: Message) -> None:
             for changeset_id in changeset_ids:
                 await status_msg.edit(content=f"{LOADING_EMOJI} Processing {elm_type}/{changeset_id}.")
                 try:
-                    changeset = get_changeset(changeset_id)
+                    changeset = get_elm("changeset", changeset_id)
                     if add_embedded:
                         embeds.append(changeset_embed(changeset))
                     if add_image:
@@ -1505,7 +1501,7 @@ async def on_message(msg: Message) -> None:
             for note_id in note_ids:
                 await status_msg.edit(content=f"{LOADING_EMOJI} Processing {elm_type}/{note_id}.")
                 try:
-                    note = get_note(note_id)
+                    note = get_elm("note",note_id)
                     if add_embedded:
                         embeds.append(note_embed(note))
                     if add_image:
@@ -1558,7 +1554,7 @@ async def on_message(msg: Message) -> None:
         for username in users:
             await status_msg.edit(content=f"{LOADING_EMOJI} Processing user/{username}.")
             try:
-                embeds.append(user_embed(get_user(get_id_from_username(username))))
+                embeds.append(user_embed(get_elm("user", get_id_from_username(username))))
             except ValueError as error_message:
                 errorlog.append(("user", username, error_message))
 
