@@ -41,44 +41,18 @@ from dotenv import load_dotenv
 from PIL import Image
 from PIL import ImageDraw  # For drawing elements
 
-## SETUP ##
-# Regex
 import regexes
+import utils
 from configuration import config, guild_ids
 
+
+## SETUP ##
 # This global set contains filename similar to /googlebad. If on_message fails, it will remove cached files on next run.
 cached_files: set = set()
 # Set of unix timestamps.
 recent_googles: set = set()
-command_history: dict = dict()  # Global per-user dictionary of sets to keep track of rate-limiting per-user.
-
-### Rendering ###
-max_zoom = 19  # Maximum zoom level without notes.
-max_note_zoom = 17  # Maximum zoom, when notes are present on map.
-tile_w, tile_h = 256, 256  # Tile size used for renderer
-tiles_x, tiles_y = 5, 5  # Dimensions of output map fragment
-tile_margin_y, tile_margin_x = 0.1, 0.1  # How much free space is left at edges
-# Used in render_elms_on_cluster. List of colours to be cycled.
-element_colors = ["#000", "#700", "#f00", "#070", "#0f0", "#f60"]
-
-### Rate-limiting ###
-# These 2 are used in check_rate_limit
-time_period = 30
-max_calls = 10
-# Following 4 are used by on_message
-max_elements = 10
-element_count_exp = round(math.log(max_calls, max_elements), 2)  # 1.17
-rate_extra_exp = 1.8
-rendering_rate_exp = 0.8
-
-HEADERS = {
-    "User-Agent": "OSM Discord Bot <https://github.com/GoodClover/OSM-Discord-bot>",
-    "Accept": "image/png",
-    "Accept-Charset": "utf-8",
-    "Accept-Encoding": "none",
-    "Accept-Language": "en-GB,en",
-    "Connection": "keep-alive",
-}
+# Global per-user dictionary of sets to keep track of rate-limiting per-user.
+command_history: dict = dict()
 
 
 overpass_api = overpy.Overpass(url=config["overpass_url"])
@@ -117,64 +91,6 @@ client = Client(
     ),
 )
 slash = SlashCommand(client, sync_commands=True)
-
-
-## UTILS ##
-
-
-def is_powerful(member: Member, guild: Guild) -> bool:
-    return guild.get_role(config["server_settings"][str(guild.id)]["power_role"]) in member.roles
-
-
-def str_to_date(text: str, suffix: str = "Z") -> datetime:
-    return datetime.strptime(text, "%Y-%m-%dT%H:%M:%S" + suffix)
-
-
-def date_to_mention(date: datetime) -> str:
-    return f"<t:{int(date.timestamp())}>"
-
-
-def sanitise(text: str) -> str:
-    """Make user input safe to just copy."""
-    text = text.replace("@", "�")
-    return text
-
-
-def check_rate_limit(user, extra=0):
-    # Sorry for no typehints, i don't know what types to have
-    tnow = round(time.time(), 1)
-    if user not in command_history:
-        command_history[user] = set()
-    # Extra is useful in case when user queries lot of elements in one query.
-    command_history[user].add(tnow + extra)
-    command_history[user] = set(filter(lambda x: x > tnow - time_period, command_history[user]))
-    # print(user, command_history[user])
-    if len(command_history[user]) > max_calls:
-        return False
-    return True
-
-
-def get_suffixed_tag(
-    tags: dict[str, str],
-    key: str,
-    suffix: str,
-) -> tuple[str, str] | tuple[None, None]:
-    # Looks like two style checkers tend to disagree on argument whitespacing.
-    suffixed_key = key + suffix
-    if suffixed_key in tags:
-        return suffixed_key, tags[suffixed_key]
-    elif key in tags:
-        return key, tags[key]
-    else:
-        return None, None
-
-
-def msg_to_link(msg: Union[Message, SlashMessage]) -> str:
-    return f"https://discord.com/channels/{msg.guild.id}/{msg.channel.id}/{msg.id}"
-
-
-def user_to_mention(user: Member) -> str:
-    return f"<@{user.id}>"
 
 
 ## CLIENT ##
@@ -707,23 +623,8 @@ def changeset_embed(changeset: dict, extras: Iterable[str] = []) -> Embed:
             embed.add_field(name="Tags", value="*(no tags)*", inline=False)
     # ?include_discussion=true
     if "discussion" in extras:
-        if changeset["comments_count"] > 0:
-            # Example: *- User opened on 2020-04-14 08:00*
-            embed.description += (
-                "\n\n".join(
-                    list(
-                        map(
-                            lambda x: "> "
-                            + x["text"].strip().replace("\n\n", "\n").replace("\n", "\n> ")
-                            + f"\n*- {x['user']} on {date_to_mention(str_to_date( x['date']))}*",
-                            changeset["discussion"],
-                        )
-                    )
-                )
-                + "\n\n"
-            )
-        else:
-            embed.description += "*No comments*\n\n"
+        # Example: *- User opened on 2020-04-14 08:00*
+        embed.description += utils.format_discussions(changeset["discussion"])
     if len(embed.description) > 1980:
         embed.description = embed.description[:1970].strip() + "…\n\n"
     embed.description += f"[OSMCha](https://osmcha.org/changesets/{changeset['id']})"
@@ -830,23 +731,8 @@ def note_embed(note: dict, extras: Iterable[str] = []) -> Embed:
             embed.add_field(name="Closed", value=date_to_mention(str_to_date(note["properties"]["closed_at"])))
 
     if "discussion" in extras:
-        if note["properties"]["comments"]:
-            # Example: *- User opened on 2020-04-14 08:00*
-            embed.description += (
-                "\n\n".join(
-                    list(
-                        map(
-                            lambda x: "> "
-                            + x["text"].strip().replace("\n\n", "\n").replace("\n", "\n> ")
-                            + f"\n*- {x['user']} {x['action']} on {date_to_mention(str_to_date(x['date']))}*",
-                            note["properties"]["comments"],
-                        )
-                    )
-                )
-                + "\n\n"
-            )
-        else:
-            embed.description += "*No comments*\n\n"
+        # Example: *- User opened on 2020-04-14 08:00*
+        embed.description += utils.format_discussions(note["properties"]["comments"])
     if creator != "*Anonymous*":
         embed.description += f"[Other notes by {creator}.](https://www.openstreetmap.org/user/{creator}/notes)"
     return embed
@@ -1013,53 +899,6 @@ async def showmap_command(ctx: SlashContext, url: str) -> None:
         img_msg = await ctx.channel.send(msg, file=File(filename))
 
     await first_msg.edit(content=f'Getting image… Done[!](<{msg_to_link(img_msg)}> "Link to message with image") :map:')
-
-
-def frag_to_bits(URL: str) -> tuple[int, float, float]:
-    matches = re.findall(MAP_FRAGEMT_CAPTURING_REGEX, URL)
-    if len(matches) != 1:
-        raise ValueError("Invalid map fragment URL.")
-    zoom, lat, lon = matches[0]
-    return int(zoom), float(lat), float(lon)
-
-
-def bits_to_frag(match: tuple[int, float, float]) -> str:
-    zoom, lat, lon = match
-    return f"#map={zoom}/{lat}/{lon}"
-
-
-def deg2tile(lat_deg: float, lon_deg: float, zoom: int) -> tuple[int, int]:
-    # Previously this function was same as deg2tile_float, but output was rounded down.
-    # Rounded in this way as type checher was throwing a fit at map() having unknown length
-    x, y = deg2tile_float(lat_deg, lon_deg, zoom)
-    return int(x), int(y)
-
-
-def tile2deg(zoom: int, x: int, y: int) -> tuple[float, float]:
-    """Get top-left coordinate of a tile."""
-    lat_rad = math.pi - 2 * math.pi * y / (2 ** zoom)
-    lat_rad = 2 * math.atan(math.exp(lat_rad)) - math.pi / 2
-    lat = lat_rad * 180 / math.pi
-    # Handling latitude out of range is not necessary
-    # longitude maps linearly to map, so we simply scale:
-    lng = -180 + (360 * x / (2 ** zoom) % 360)
-    return (lat, lng)
-
-
-def deg2tile_float(lat_deg: float, lon_deg: float, zoom: int) -> tuple[float, float]:
-    # This is not really supposed to work, but it works.
-    # By removing rounding down from deg2tile function, we can estimate
-    # position where to draw coordinates during element export.
-    lat_rad = math.radians(lat_deg)
-    n = 2 ** zoom
-    xtile = (lon_deg + 180.0) / 360 * n
-    # Sets safety bounds on vertical tile range.
-    if lat_deg >= 89:
-        return (xtile, 0)
-    if lat_deg <= -89:
-        return (xtile, n - 1)
-    ytile = (1 - math.log(math.tan(lat_rad) + (1 / math.cos(lat_rad))) / math.pi) / 2 * n
-    return (xtile, max(min(n - 1, ytile), 0))
 
 
 async def elms_to_render(
@@ -1414,31 +1253,6 @@ def draw_node(coord: tuple[float, float], draw, colour="red") -> None:
     rightDownPoint = (x + r, y + r)
     twoPointList = [leftUpPoint, rightDownPoint]
     draw.ellipse(twoPointList, fill=colour)
-
-
-def wgs2pixel(
-    xy: tuple[float | int, float | int],
-    tile_range: tuple[int, int, int, int, tuple[float, float]],
-    frag: tuple[int, float, float],
-):
-    """Convert geographical coordinates to X-Y coordinates to be used on map."""
-    # Tile range is calculated in get_image_tile_range
-    zoom, lat_deg, lon_deg = frag
-    n = 2 ** zoom  # N is number of tiles in one direction on zoom level
-    # tile_offset - By how many tiles should tile grid shifted somewhere.
-    xmin, xmax, ymin, ymax, tile_offset = tile_range
-    coord = deg2tile_float(xy[0], xy[1], zoom)
-    # Coord is now actual pixels, where line must be drawn on image.
-    return tile2pixel(coord, zoom, tile_range)
-
-
-def tile2pixel(xy, zoom, tile_range):
-    """Convert Z/X/Y tile to map's X-Y coordinates"""
-    # That's all, no complex math involved. Rendering bug might be somewhere else.
-    xmin, xmax, ymin, ymax, tile_offset = tile_range
-    # If it still doesn't work, replace "- tile_offset" with "+ tile_offset"
-    coord = (round((xy[0] - xmin - tile_offset[0]) * tile_w), round((xy[1] - ymin - tile_offset[1]) * tile_h))
-    return coord
 
 
 def render_notes_on_cluster(Cluster, notes: list[tuple[float, float, bool]], frag: tuple[int, float, float], filename):
