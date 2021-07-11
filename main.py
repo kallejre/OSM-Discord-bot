@@ -44,6 +44,7 @@ from PIL import ImageDraw  # For drawing elements
 ## SETUP ##
 # Regex
 import regexes
+from configuration import config, guild_ids
 
 # This global set contains filename similar to /googlebad. If on_message fails, it will remove cached files on next run.
 cached_files: set = set()
@@ -80,25 +81,6 @@ HEADERS = {
 }
 
 
-def load_config() -> None:
-    global config, guild_ids
-    # LINK - config.json
-    with open("config.json", "r", encoding="utf8") as file:
-        config = json.loads(file.read())
-    guild_ids = [int(x) for x in config["server_settings"].keys()]
-
-
-def save_config() -> None:
-    global config
-    # LINK - config.json
-    with open("config.json", "w", encoding="utf8") as file:
-        file.write(json.dumps(config, indent=4))
-
-
-config: dict[str, Any] = {}
-guild_ids: list[int] = []
-load_config()
-
 overpass_api = overpy.Overpass(url=config["overpass_url"])
 
 res = requests.get(config["symbols"]["note_solved"], headers=HEADERS)
@@ -108,15 +90,15 @@ open_note_icon = Image.open(BytesIO(res.content))
 open_note_icon_size = open_note_icon.size
 closed_note_icon_size = closed_note_icon.size
 
-INSPECT_EMOJI = "🔎"  # :mag_right:
-IMAGE_EMOJI = "🖼️"  # :frame_photo:
-EMBEDDED_EMOJI = "🛏️"  # :bed:
-CANCEL_EMOJI = "❌"  # :x:
-DELETE_EMOJI = "🗑️"  # :wastebasket:
+INSPECT_EMOJI = config["emoji"]["inspect"]  # :mag_right:
+IMAGE_EMOJI = config["emoji"]["image"]  # :frame_photo:
+EMBEDDED_EMOJI = config["emoji"]["embedded"]  # :bed:
+CANCEL_EMOJI = config["emoji"]["cancel"]  # :x:
+DELETE_EMOJI = config["emoji"]["delete"]  # :wastebasket:
 LOADING_EMOJI = config["emoji"]["loading"]  # :loading:
-LEFT_SYMBOL = "←"
-RIGHT_SYMBOL = "→"
-CANCEL_SYMBOL = "✘"
+LEFT_SYMBOL = config["emoji"]["left"]  # "←"
+RIGHT_SYMBOL = config["emoji"]["right"]  # "→"
+CANCEL_SYMBOL = config["emoji"]["cancel_utf"]  # "✘"
 
 with open(config["ohno_file"], "r", encoding="utf8") as file:
     ohnos = [entry for entry in file.read().split("\n\n") if entry != ""]
@@ -249,12 +231,12 @@ async def quota_command(ctx: SlashContext) -> None:
     msg = "\n".join(
         list(
             map(
-                lambda x: f"Command available in {round(x+time_period-tnow)} sec.",
+                lambda x: f'Command available in {round(x+config["rate_limit"]["time_period"]-tnow)} sec.',
                 sorted(command_history[ctx.author_id]),
             )
         )
     )
-    msg += f"\nYou can still send {max_calls-len(command_history[ctx.author_id])} actions to this bot."
+    msg += f'\nYou can still send {config["rate_limit"]["max_calls"]-len(command_history[ctx.author_id])} actions to this bot.'
     await ctx.send(msg, hidden=True)
 
 
@@ -423,7 +405,7 @@ async def elm_command(ctx: SlashContext, elm_type: str, elm_id: str, extras: str
     if "map" in extras_list:
         await ctx.defer()
         render_queue = await elms_to_render(elm_type, elm_id)
-        check_rate_limit(ctx.author_id, extra=len(render_queue) ** rendering_rate_exp)
+        check_rate_limit(ctx.author_id, extra=len(render_queue) ** config["rate_limit"]["rendering_rate_exp"])
         bbox = get_render_queue_bounds(render_queue)
         zoom, lat, lon = calc_preview_area(bbox)
         cluster, filename, errors = await get_image_cluster(lat, lon, zoom)
@@ -1351,7 +1333,7 @@ async def get_image_cluster_old(
     for xtile in range(xmin, xmax + 1):
         for ytile in range(ymin, ymax + 1):
             try:
-                res = requests.get(tile_url.format(zoom=zoom, x=xtile, y=ytile), headers=HEADERS)
+                res = requests.get(tile_url.format(zoom=zoom, x=xtile, y=ytile), headers=config["rendering"]["HEADERS"])
                 tile = Image.open(BytesIO(res.content))
                 Cluster.paste(tile, box=((xtile - xmin) * tile_w, (ytile - ymin) * tile_h))
                 i = i + 1
@@ -1398,7 +1380,7 @@ async def _get_image_cluster__get_image(
     url = tile_url.format(zoom=zoom, x=xtile_corrected, y=ytile)
     # print(f"Requesting: {url}")
     try:
-        res = await session.get(url, headers=HEADERS)
+        res = await session.get(url, headers=config["rendering"]["HEADERS"])
         data = await res.content.read()
         cluster.paste(
             Image.open(BytesIO(data)),
@@ -1423,7 +1405,13 @@ async def get_image_cluster(
     xmin, xmax, ymin, ymax, tile_offset = tile_range
 
     errorlog = []
-    cluster = Image.new("RGB", (tiles_x * tile_w - 1, tiles_y * tile_h - 1))
+    cluster = Image.new(
+        "RGB",
+        (
+            config["rendering"]["tiles_x"] * config["rendering"]["tile_w"] - 1,
+            config["rendering"]["tiles_y"] * config["rendering"]["tile_h"] - 1,
+        ),
+    )
 
     t = time.time()
     async with aiohttp.ClientSession() as session:
@@ -1663,7 +1651,7 @@ async def on_message(msg: Message) -> None:
 
     #### "use potlatch" → sirens 🚨 ####
     if regexes.POTLATCH.findall(msg.clean_content):
-        await msg.add_reaction("🚨")
+        await msg.add_reaction(config["emoji"]["sirens"])
         await msg.add_reaction(config["emoji"]["potlatch"])
 
     #### Inline linking ####
@@ -1679,10 +1667,10 @@ async def on_message(msg: Message) -> None:
 
     queried_elements_count = len(elms) + len(changesets) + len(users) + len(map_frags) + len(notes)
     author_id = msg.author.id
-    check_rate_limit(author_id, -time_period - 1)  # Refresh command history
+    check_rate_limit(author_id, -config["rate_limit"]["time_period"] - 1)  # Refresh command history
     if queried_elements_count == 0:
         return
-    elif queried_elements_count > max_elements - len(command_history[author_id]):
+    elif queried_elements_count > config["rate_limit"]["max_elements"] - len(command_history[author_id]):
         # If there are too many elements, just ignore.
         return
 
@@ -1700,9 +1688,9 @@ async def on_message(msg: Message) -> None:
     wait_for_user_end = time.time()
     render_queue: list[list[tuple[float, float]]] = []
     # User quota is checked after they confirmed element lookup.
-    for i in range(int(queried_elements_count ** element_count_exp) + 1):
+    for i in range(int(queried_elements_count ** config["rate_limit"]["element_count_exp"]) + 1):
         # Allows querying up to 10 elements at same time, delayed for up to 130 sec
-        rating = check_rate_limit(author_id, round(i ** rate_extra_exp, 2))
+        rating = utils.check_rate_limit(author_id, round(i ** config["rate_limit"]["rate_extra_exp"], 2))
         # if not rating:
         #     return
     async with msg.channel.typing():
@@ -1765,13 +1753,14 @@ async def on_message(msg: Message) -> None:
         msg_arrived = time.time()
         if render_queue or notes_render_queue:
             # Add extra to quota for querying large relations
-            check_rate_limit(author_id, extra=(len(render_queue) + len(notes_render_queue)) ** rendering_rate_exp)
+            check_rate_limit(author_id, 
+                extra=(len(render_queue) + len(notes_render_queue)) ** config["rate_limit"]["rendering_rate_exp"])
             # Next step is to calculate map area for render.
             await status_msg.edit(content=f"{LOADING_EMOJI} Downloading map tiles")
             bbox = get_render_queue_bounds(render_queue, notes_render_queue)
             zoom, lat, lon = calc_preview_area(bbox)
             if notes_render_queue:
-                zoom = min([zoom, max_note_zoom])
+                zoom = min([zoom, config["rendering"]["max_note_zoom"]])
             print(zoom, lat, lon, sep="/")
             cluster, filename, errors = await get_image_cluster(lat, lon, zoom)
             cached_files.add(filename)

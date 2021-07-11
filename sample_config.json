@@ -49,7 +49,16 @@
         "relation_member": "<:relation_member:793915489457143819>",
         "tag_key": "<:tag_key:793915488672940042>",
         "tag": "<:tag:793915489063141456>",
-        "tag_value": "<:tag_value:793915488596918272>"
+        "tag_value": "<:tag_value:793915488596918272>",
+        "inspect": "🔎",
+        "image": "🖼️",
+        "embedded": "🛏️",
+        "cancel": "❌",
+        "delete": "🗑️",
+        "left": "←",
+        "right": "→",
+        "cancel_utf": "✘",
+        "sirens": "🚨"
     },
     "server_settings": {
         "413070382636072960": {
@@ -59,5 +68,33 @@
             "mappers_count_channel": 578578746244726794,
             "suggestions_enabled": false
         }
+    },
+    "rendering": {
+        "max_zoom": 19,
+        "max_note_zoom": 17,
+        "tile_w": 256,
+        "tile_h": 256,
+        "tiles_x": 5,
+        "tiles_y": 5,
+        "tile_margin_x": 0.1,
+        "tile_margin_y": 0.1,
+        "HEADERS": {
+            "User-Agent": "OSM Discord Bot <https://github.com/GoodClover/OSM-Discord-bot>",
+            "Accept": "image/png",
+            "Accept-Charset": "utf-8",
+            "Accept-Encoding": "none",
+            "Accept-Language": "en-GB,en",
+            "Connection": "keep-alive",
+        },
+        "limiter_offset": 50,
+        "reduction_factor": 2
+    },
+    "rate_limit": {
+        "time_period": 30
+        "max_calls": 10
+        "max_elements": 10
+        "element_count_exp": "This field is calculated within script (ln 105)."
+        "rate_extra_exp": 1.8
+        "rendering_rate_exp": 0.8
     }
 }
