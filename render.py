@@ -15,13 +15,20 @@ import colors
 # Used in render_elms_on_cluster. List of colours to be cycled.
 element_colors = ["#000", "#700", "#f00", "#070", "#0f0", "#f60"]
 
-res = requests.get(config["symbols"]["note_solved"], headers=config["rendering"]["HEADERS"])
-closed_note_icon = Image.open(BytesIO(res.content))
-res = requests.get(config["symbols"]["note_open"], headers=config["rendering"]["HEADERS"])
-open_note_icon = Image.open(BytesIO(res.content))
+if config["symbols"]["note_solved"].startswith("http"):
+    res = requests.get(config["symbols"]["note_solved"], headers=config["rendering"]["HEADERS"])
+    closed_note_icon = Image.open(BytesIO(res.content))
+else:
+    closed_note_icon = Image.open(open(config["symbols"]["note_solved"], "rb"))
+if config["symbols"]["note_open"].startswith("http"):
+    res = requests.get(config["symbols"]["note_open"], headers=config["rendering"]["HEADERS"])
+    open_note_icon = Image.open(BytesIO(res.content))
+else:
+    # https://stackoverflow.com/a/11895901
+    open_note_icon = Image.open(open(config["symbols"]["note_open"], "rb"))
+
 open_note_icon_size = open_note_icon.size
 closed_note_icon_size = closed_note_icon.size
-
 
 
 # Rendering system may need a rewrite which focuses on object-oriented approach.
