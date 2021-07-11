@@ -43,8 +43,9 @@ from PIL import ImageDraw  # For drawing elements
 
 import regexes
 import utils
-from configuration import config, guild_ids
-
+from configuration import config
+from configuration import guild_ids
+from utils import *  # Backup for cases when utils.* prefix was not added yet.
 
 ## SETUP ##
 # This global set contains filename similar to /googlebad. If on_message fails, it will remove cached files on next run.
@@ -120,7 +121,7 @@ async def googlebad_command(ctx: SlashContext) -> None:
 # JOSM Tip
 @slash.slash(name="josmtip", description="Get a JOSM tip.", guild_ids=guild_ids)  # type: ignore
 async def josmtip_command(ctx: SlashContext) -> None:
-    if not check_rate_limit(ctx.author_id):
+    if not utils.check_rate_limit(ctx.author_id):
         await ctx.send("You have hit the limiter.", hidden=True)
         return
     await ctx.send(random.choice(josm_tips))
@@ -129,7 +130,7 @@ async def josmtip_command(ctx: SlashContext) -> None:
 # Quota query
 @slash.slash(name="quota", description="Shows your spam limit.", guild_ids=guild_ids)  # type: ignore
 async def quota_command(ctx: SlashContext) -> None:
-    if not check_rate_limit(ctx.author_id):
+    if not utils.check_rate_limit(ctx.author_id):
         await ctx.send("You have hit the limiter.", hidden=True)
     tnow = time.time()
     msg = "\n".join(
@@ -159,7 +160,7 @@ async def quota_command(ctx: SlashContext) -> None:
     ],
 )  # type: ignore
 async def taginfo_command(ctx: SlashContext, tag: str) -> None:
-    if not check_rate_limit(ctx.author_id):
+    if not utils.check_rate_limit(ctx.author_id):
         await ctx.send("You have hit the limiter.", hidden=True)
         return
     split_tag = tag.replace("`", "").split("=", 1)
@@ -219,7 +220,7 @@ def taginfo_embed(key: str, value: str | None = None) -> Embed:
         embed.set_thumbnail(url=config["symbols"]["tag" if value else "key"])
 
     # This is the last time taginfo updated:
-    embed.timestamp = str_to_date(data["data_until"])
+    embed.timestamp = utils.str_to_date(data["data_until"])
 
     # embed.set_author(name="taginfo", url=config["taginfo_url"] + "about")
 
@@ -284,7 +285,7 @@ def taginfo_embed(key: str, value: str | None = None) -> Embed:
     ],
 )  # type: ignore
 async def elm_command(ctx: SlashContext, elm_type: str, elm_id: str, extras: str = "") -> None:
-    if not check_rate_limit(ctx.author_id):
+    if not utils.check_rate_limit(ctx.author_id):
         await ctx.send("You have hit the limiter.", hidden=True)
         return
     extras_list = [e.strip() for e in extras.lower().split(",")]
@@ -309,7 +310,7 @@ async def elm_command(ctx: SlashContext, elm_type: str, elm_id: str, extras: str
     if "map" in extras_list:
         await ctx.defer()
         render_queue = await elms_to_render(elm_type, elm_id)
-        check_rate_limit(ctx.author_id, extra=len(render_queue) ** config["rate_limit"]["rendering_rate_exp"])
+        utils.check_rate_limit(ctx.author_id, extra=len(render_queue) ** config["rate_limit"]["rendering_rate_exp"])
         bbox = get_render_queue_bounds(render_queue)
         zoom, lat, lon = calc_preview_area(bbox)
         cluster, filename, errors = await get_image_cluster(lat, lon, zoom)
@@ -338,13 +339,13 @@ def elm_embed(elm: dict, extras: Iterable[str] = []) -> Embed:
 
     embed.set_thumbnail(url=config["symbols"][elm["type"]])
 
-    embed.timestamp = str_to_date(elm["timestamp"])
+    embed.timestamp = utils.str_to_date(elm["timestamp"])
 
     # embed.set_author(name=elm["user"], url=config["site_url"] + "user/" + elm["user"])
 
     embed.title = elm["type"].capitalize() + ": "
     if "tags" in elm:
-        key, name = get_suffixed_tag(elm["tags"], "name", ":en")
+        key, name = utils.get_suffixed_tag(elm["tags"], "name", ":en")
     else:
         name = None
     if name:
@@ -380,11 +381,7 @@ def elm_embed(elm: dict, extras: Iterable[str] = []) -> Embed:
     #### Image ####
     # * This would create significant stress to the OSM servers, so I don't reccomend it.
     # ! This doesn't work due to the OSM servers having some form of token check.
-    # img_url = (
-    #     "https://render.openstreetmap.org/cgi-bin/export?bbox="
-    #     f"{elm['lon']-0.001},{elm['lat']-0.001},{elm['lon']+0.001},{elm['lat']+0.001}"
-    #     "&scale=1800&format=png"
-    # )
+    # img_url = (  "https://render.openstreetmap.org/cgi-bin/export?bbox=" )
     # embed.set_image(url=img_url)
     # Image of element is handled separately.
 
@@ -422,7 +419,7 @@ def elm_embed(elm: dict, extras: Iterable[str] = []) -> Embed:
 
             # "description", "inscription"
             for key in ["note", "FIXME", "fixme"]:
-                key_languaged, value = get_suffixed_tag(elm["tags"], "note", ":en")
+                key_languaged, value = utils.get_suffixed_tag(elm["tags"], "note", ":en")
                 if value:
                     elm["tags"].pop(key_languaged)
                     embed.add_field(name=key.capitalize(), value="> " + value, inline=False)
@@ -479,7 +476,7 @@ def elm_embed(elm: dict, extras: Iterable[str] = []) -> Embed:
     ],
 )  # type: ignore
 async def changeset_command(ctx: SlashContext, changeset_id: str, extras: str = "") -> None:
-    if not check_rate_limit(ctx.author_id):
+    if not utils.check_rate_limit(ctx.author_id):
         await ctx.send("You have hit the limiter.", hidden=True)
         return
     extras_list = [e.strip() for e in extras.lower().split(",")]
@@ -499,7 +496,7 @@ async def changeset_command(ctx: SlashContext, changeset_id: str, extras: str = 
     if "map" in extras_list:
         await ctx.defer()
         render_queue = changeset["geometry"]
-        check_rate_limit(ctx.author_id)
+        utils.check_rate_limit(ctx.author_id)
         bbox = get_render_queue_bounds(render_queue)
         zoom, lat, lon = calc_preview_area(bbox)
         cluster, filename, errors = await get_image_cluster(lat, lon, zoom)
@@ -528,7 +525,7 @@ def changeset_embed(changeset: dict, extras: Iterable[str] = []) -> Embed:
     # There doesn't appear to be a changeset icon
     # embed.set_thumbnail(url=config["symbols"]["changeset"])
 
-    embed.timestamp = str_to_date(changeset["closed_at"])
+    embed.timestamp = utils.str_to_date(changeset["closed_at"])
 
     embed.set_author(name=changeset["user"], url=config["site_url"] + "user/" + quote(changeset["user"]))
 
@@ -558,8 +555,8 @@ def changeset_embed(changeset: dict, extras: Iterable[str] = []) -> Embed:
     if "info" in extras:
         embed.add_field(name="Comments", value=changeset["comments_count"])
         embed.add_field(name="Changes", value=changeset["changes_count"])
-        embed.add_field(name="Created", value=date_to_mention(str_to_date(changeset["created_at"])))
-        embed.add_field(name="Closed", value=date_to_mention(str_to_date(changeset["closed_at"])))
+        embed.add_field(name="Created", value=utils.date_to_mention(utils.str_to_date(changeset["created_at"])))
+        embed.add_field(name="Closed", value=utils.date_to_mention(utils.str_to_date(changeset["closed_at"])))
 
         if "tags" in changeset:
             if "source" in changeset["tags"]:
@@ -604,20 +601,20 @@ def changeset_embed(changeset: dict, extras: Iterable[str] = []) -> Embed:
         ),
         create_option(
             name="extras",
-            description="Comma seperated list of extras from `info`, `discussion`.",
+            description="Comma seperated list of extras from `info`, `discussion`, `map`.",
             option_type=3,
             required=False,
         ),
     ],
 )  # type: ignore
 async def note_command(ctx: SlashContext, note_id: str, extras: str = "") -> None:
-    if not check_rate_limit(ctx.author_id):
+    if not utils.check_rate_limit(ctx.author_id):
         await ctx.send("You have hit the limiter.", hidden=True)
         return
     extras_list = [e.strip() for e in extras.lower().split(",")]
 
     for extra in extras_list:
-        if extra != "" and extra not in ["info", "discussion"]:
+        if extra != "" and extra not in ["info", "discussion", "map"]:
             await ctx.send(f"Unrecognised extra `{extra}`.\nPlease choose from `info`.", hidden=True)
             return
 
@@ -647,7 +644,7 @@ def note_embed(note: dict, extras: Iterable[str] = []) -> Embed:
     else:
         closed = False
         embed.set_thumbnail(url=config["symbols"]["note_open"])
-    embed.timestamp = str_to_date(note["properties"]["date_created"].replace(" ", "T")[:19] + "Z")
+    embed.timestamp = utils.str_to_date(note["properties"]["date_created"].replace(" ", "T")[:19] + "Z")
     if "user" in note["properties"]["comments"][0]:
         creator = note["properties"]["comments"][0]["user"]
         embed.set_author(name=creator, url=note["properties"]["comments"][0]["user_url"])
@@ -707,7 +704,7 @@ def note_embed(note: dict, extras: Iterable[str] = []) -> Embed:
     ],
 )  # type: ignore
 async def user_command(ctx: SlashContext, username: str, extras: str = "") -> None:
-    if not check_rate_limit(ctx.author_id):
+    if not utils.check_rate_limit(ctx.author_id):
         await ctx.send("You have hit the limiter.", hidden=True)
         return
     extras_list = [e.strip() for e in extras.lower().split(",")]
@@ -749,7 +746,7 @@ def user_embed(user: dict, extras: Iterable[str] = []) -> Embed:
         embed.set_thumbnail(url=config["symbols"]["user"])
 
     # embed.timestamp = datetime.now()
-    # embed.timestamp = str_to_date(user["account_created"])
+    # embed.timestamp = utils.str_to_date(user["account_created"])
 
     embed.title = "User: " + user["display_name"]
 
@@ -766,7 +763,7 @@ def user_embed(user: dict, extras: Iterable[str] = []) -> Embed:
         embed.add_field(name="Changesets", value=user["changesets"]["count"])
         embed.add_field(name="Traces", value=user["traces"]["count"])
         embed.add_field(name="Contributor Terms", value="Agreed" if user["contributor_terms"]["agreed"] else "Unknown")
-        embed.add_field(name="User since", value=date_to_mention(str_to_date(user["account_created"])))
+        embed.add_field(name="User since", value=utils.date_to_mention(utils.str_to_date(user["account_created"])))
         if user["blocks"]["received"]["count"] > 0:
             embed.add_field(
                 name="Blocks",
@@ -791,7 +788,7 @@ def user_embed(user: dict, extras: Iterable[str] = []) -> Embed:
     ],
 )  # type: ignore
 async def showmap_command(ctx: SlashContext, url: str) -> None:
-    if not check_rate_limit(ctx.author_id):
+    if not utils.check_rate_limit(ctx.author_id):
         await ctx.send("You have hit the limiter.", hidden=True)
         return
     try:
@@ -812,7 +809,9 @@ async def showmap_command(ctx: SlashContext, url: str) -> None:
 
         img_msg = await ctx.channel.send(msg, file=File(filename))
 
-    await first_msg.edit(content=f'Getting image… Done[!](<{msg_to_link(img_msg)}> "Link to message with image") :map:')
+    await first_msg.edit(
+        content=f'Getting image… Done[!](<{utils.msg_to_link(img_msg)}> "Link to message with image") :map:'
+    )
 
 
 async def elms_to_render(
@@ -943,7 +942,7 @@ async def _get_image_cluster__get_image(
         data = await res.content.read()
         cluster.paste(
             Image.open(BytesIO(data)),
-            tile2pixel((xtile, ytile), zoom, tile_range),
+            utils.tile2pixel((xtile, ytile), zoom, tile_range),
         )
         return None
     except Exception as e:
@@ -1120,11 +1119,11 @@ async def on_message(msg: Message) -> None:
 
     queried_elements_count = len(elms) + len(changesets) + len(users) + len(map_frags) + len(notes)
     author_id = msg.author.id
-    check_rate_limit(author_id, -config["rate_limit"]["time_period"] - 1)  # Refresh command history
+    utils.check_rate_limit(author_id, -config["rate_limit"]["time_period"] - 1)  # Refresh command history
     if queried_elements_count == 0:
         return
     elif queried_elements_count > config["rate_limit"]["max_elements"] - len(command_history[author_id]):
-        # If there are too many elements, just ignore.
+        # If there are too many elements, just ignore. Sending hidden normal messages is unsupported.
         return
 
     ask_confirmation = False
@@ -1201,7 +1200,7 @@ async def on_message(msg: Message) -> None:
         time_spent = round(time.time() - msg_arrived - (wait_for_user_end - wait_for_user_start), 3)
         if time_spent > 15:
             # Most direct way to assess difficulty of user's request.
-            check_rate_limit(author_id, time_spent)
+            utils.check_rate_limit(author_id, time_spent)
         print(f"Script spent {time_spent} sec on downloading elements.")
         msg_arrived = time.time()
         if render_queue or notes_render_queue:
@@ -1244,7 +1243,7 @@ async def on_message(msg: Message) -> None:
 
         for map_frag in map_frags:
             await status_msg.edit(content=f"{LOADING_EMOJI} Processing {map_frag}.")
-            zoom, lat, lon = frag_to_bits(map_frag)
+            zoom, lat, lon = utils.frag_to_bits(map_frag)
             cluster, filename, errors = await get_image_cluster(lat, lon, zoom)
             errorlog += errors
             files.append(File(filename))
@@ -1278,7 +1277,7 @@ async def on_message(msg: Message) -> None:
         # msg_arrived actually means time since start of rendering
         if time_spent > 10:
             # Most direct way to assess difficulty of user's request.
-            check_rate_limit(author_id, time_spent)
+            utils.check_rate_limit(author_id, time_spent)
         print(f"Script spent {time_spent} sec on preparing output (render, embeds, files, errors).")
 
     # Clean up files
@@ -1319,7 +1318,7 @@ async def update_member_count(guild: Guild) -> None:
     ],
 )  # type: ignore
 async def suggest_command(ctx: SlashContext, suggestion: str) -> None:
-    if not check_rate_limit(ctx.author_id):
+    if not utils.check_rate_limit(ctx.author_id):
         await ctx.send("You have hit the limiter.", hidden=True)
         return
     if not config["server_settings"][str(ctx.guild.id)]["suggestions_enabled"]:
@@ -1330,20 +1329,19 @@ async def suggest_command(ctx: SlashContext, suggestion: str) -> None:
 
     suggestion_chanel = client.get_channel(config["server_settings"][str(ctx.guild.id)]["suggestion_channel"])
 
-    suggestion = sanitise(suggestion).replace("\n", "\n> ")
+    suggestion = utils.sanitise(suggestion).replace("\n", "\n> ")
 
     sugg_msg = await suggestion_chanel.send(
         f"""
 __**New suggestion posted**__
-By: <@!{ctx.author.id}>, {date_to_mention(datetime.now())}
+By: <@!{ctx.author.id}>, {utils.date_to_mention(datetime.now())}
 > {suggestion}
-
 Vote with {config['emoji']['vote_yes']}, {config['emoji']['vote_abstain']} and {config['emoji']['vote_no']}.
 """
     )
     await ctx.send(
         f"Sent suggestion in <#{config['server_settings'][str(ctx.guild.id)]['suggestion_channel']}>."
-        + msg_to_link(sugg_msg),
+        + utils.msg_to_link(sugg_msg),
         hidden=True,
     )
     await sugg_msg.add_reaction(config["emoji"]["vote_yes"])
@@ -1371,7 +1369,7 @@ Vote with {config['emoji']['vote_yes']}, {config['emoji']['vote_abstain']} and {
     ],
 )  # type: ignore
 async def close_suggestion_command(ctx: SlashContext, msg_id: int, result: str) -> None:
-    if not check_rate_limit(ctx.author_id):
+    if not utils.check_rate_limit(ctx.author_id):
         await ctx.send("You have hit the limiter.", hidden=True)
         return
     if not config["server_settings"][str(ctx.guild.id)]["suggestions_enabled"]:
@@ -1417,8 +1415,8 @@ async def close_suggestion_command(ctx: SlashContext, msg_id: int, result: str) 
 
     sugg_msg = await msg.edit(
         content=msg.content.split("\n\n")[0]
-        + f"\n\n__**Voting closed**__ by {user_to_mention(ctx.author)}, {date_to_mention(datetime.now())}.\n"
-        + f"Result: **{sanitise(result)}**\n"
+        + f"\n\n__**Voting closed**__ by {utils.user_to_mention(ctx.author)}, {utils.date_to_mention(datetime.now())}.\n"
+        + f"Result: **{utils.sanitise(result)}**\n"
         + f"Voting closed with: {votes['yes']} {config['emoji']['vote_yes']}"
         + f", {votes['abstain']} {config['emoji']['vote_abstain']}"
         + f", {votes['no']} {config['emoji']['vote_no']}"
@@ -1428,7 +1426,7 @@ async def close_suggestion_command(ctx: SlashContext, msg_id: int, result: str) 
     # Extra brackets above are to stop weird auto-formatting.
 
     await ctx.send(
-        f"Closed suggestion with result '{result}'.\nYou can re-run this command to change the result.\n{msg_to_link(msg)}",
+        f"Closed suggestion with result '{result}'.\nYou can re-run this command to change the result.\n{utils.msg_to_link(msg)}",
         hidden=True,
     )
 
@@ -1439,7 +1437,7 @@ help_embeds: list[Embed] = []
 with open("HELP.md", "r") as file:
     for page in file.read().split("\n# "):
         title, image, body = page.split("\n", 2)
-        title = title.removeprefix("# ")  # split() dosen't remove it for the first one.
+        title = title.removeprefix("# ")  # split() doesn't remove it for the first one.
         embed = Embed(
             type="rich",
             title=title,
@@ -1483,7 +1481,7 @@ async def help(ctx: SlashContext) -> None:
         except asyncio.TimeoutError:  # User didn't respond
             await action_msg.delete()
         else:  # User responded
-            if btn_ctx.author != ctx.author and not is_powerful(btn_ctx.author, btn_ctx.guild):
+            if btn_ctx.author != ctx.author and not utils.is_powerful(btn_ctx.author, btn_ctx.guild):
                 await btn_ctx.send("Only the person that ran `/help`, or helpers, can control the menu.", hidden=True)
                 continue
 
@@ -1521,7 +1519,7 @@ async def delete(btn_ctx: ComponentContext):
     # so this will have to be powerful-only. Deletion by the command invoker is
     # handled inside the slash command, but that will break after re-boot.
     # This will always work, even after re-boots.
-    if not is_powerful(btn_ctx.author, btn_ctx.guild):
+    if not utils.is_powerful(btn_ctx.author, btn_ctx.guild):
         await btn_ctx.send("Only the person that called the command or helpers can delete it.", hidden=True)
         return
     await btn_ctx.origin_message.delete()
