@@ -1653,6 +1653,10 @@ async def on_message(msg: Message) -> None:
     if regexes.POTLATCH.findall(msg.clean_content):
         await msg.add_reaction(config["emoji"]["sirens"])
         await msg.add_reaction(config["emoji"]["potlatch"])
+    # When bot is mentioned, react with robot emoji to quickly test, if bot is online.
+    # Difference between two sides if "or" below is exclamation mark (!) in later condition.
+    if f"<@{client.user.id}>" in msg.raw_mentions or f"<@!{client.user.id}>" in msg.raw_mentions:
+        await msg.add_reaction(config["emoji"]["bot"])
 
     #### Inline linking ####
     # Find matches
