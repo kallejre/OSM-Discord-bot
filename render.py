@@ -252,6 +252,8 @@ class RenderSegment:
             )
 
 
+# Actual slash commands for all elements could be standardized.
+# It's the get_embed that's different.
 # Standard part for getting map:
 """
     files = []
